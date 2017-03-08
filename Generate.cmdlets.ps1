@@ -1,0 +1,1 @@
+﻿Set-Content -value (ls .\Cmdlets | %{Get-ContentAsString $_.Fullname}) -Path .\Cmdlets.ps1

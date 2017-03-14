@@ -2122,6 +2122,42 @@ function Invoke-Office365Report
         }
     }
 } 
+function Join-String
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([String])]
+    Param
+    (
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=0)]
+        [String] $Delimiter = ", ",
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=1)]
+        [String] $Qualifier,
+
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=2)]
+        [String] $String
+    )
+
+    Begin
+    {
+        $list = New-Object System.Collections.ArrayList
+    }
+    Process
+    {
+        $list.Add($Qualifier + $String + $Qualifier) | Out-Null
+    }
+    End
+    {
+        return ($list -join $Delimiter)
+    }
+}
 Function Load-Assembly {
     [CmdletBinding()]
     Param
@@ -2886,123 +2922,6 @@ Function Search-IseFiles {
     }
     End
     {
-    }
-
-}
-
-Function Send-SlackMessageLumagate {
-    [CmdletBinding()]
-    [Alias("slackluma")]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Channels = @('@mariussm'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $WebhookUri = 'https://hooks.slack.com/services/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'
-
-    )
-
-    Process
-    {
-        foreach($Channel in $Channels) {
-            $body = @{text = $Text; channel = $Channel} | ConvertTo-Json
-            $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-            if($result -ne "ok") {
-                Write-Error "Expected 'ok' back from slack, but got: $result"
-            }
-        }
-    }
-
-}
-
-Function Send-SlackMessagePrivate {
-    [CmdletBinding()]
-    [Alias("slackpriv")]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Channels = @('#general'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $WebhookUri = 'https://hooks.slack.com/services/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'
-
-    )
-
-    Process
-    {
-        foreach($Channel in $Channels) {
-            $body = @{text = $Text; channel = $Channel} | ConvertTo-Json
-            $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-            if($result -ne "ok") {
-                Write-Error "Expected 'ok' back from slack, but got: $result"
-            }
-        }
-    }
-
-}
-
-Function Send-TeamsNotification {
-    [CmdletBinding()]
-    [Alias("slackluma")]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Mentions = @('@marius.solbakken@lumagate.com'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $Title = $null,
-        
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=3)]
-        [String] $WebhookUri = 'https://outlook.office365.com/webhook/23996283-9b34-4edc-8223-59a217712e96@fb6de64b-9546-4830-9741-05cb9344399d/IncomingWebhook/dce5d8591b13440784881266cb5da601/2db586cb-7a8a-448a-b2db-7995936cf808'
-    )
-
-    Process
-    {
-        $Json = @{text = $Text}
-
-        if($Title -ne $null) {
-            $Json["title"] = $Title
-        }
-
-        $Mentions | foreach {
-            $Json.Text += " $($_)"
-        }
-
-        $body = $json | ConvertTo-Json
-        $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-        if($result -ne "1") {
-            Write-Error "Expected '1' back from teams, but got: $result"
-        }
     }
 
 }
@@ -3791,108 +3710,6 @@ Function Trim-String {
     End
     {
     }
-
-}
-
-Function Write-SlackErrorPrivate {
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Channels = @('#general'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $WebhookUri = 'https://hooks.slack.com/services/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'
-    )
-
-    Process
-    {
-        foreach($Channel in $Channels) {
-            $body = @{attachments = @(@{color="danger" ; text = $Text ; fallback = $Text}); channel = $Channel} | ConvertTo-Json
-            $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-            if($result -ne "ok") {
-                Write-Error "Expected 'ok' back from slack, but got: $result"
-            }
-        }
-    }
-    
-
-}
-
-Function Write-SlackPrivate {
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Channels = @('#general'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $WebhookUri = 'https://hooks.slack.com/services/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'
-    )
-
-    Process
-    {
-        foreach($Channel in $Channels) {
-            $body = @{attachments = @(@{color="good" ; text = $Text ; fallback = $Text}); channel = $Channel} | ConvertTo-Json
-            $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-            if($result -ne "ok") {
-                Write-Error "Expected 'ok' back from slack, but got: $result"
-            }
-        }
-    }
-    
-
-}
-
-Function Write-SlackWarningPrivate {
-    [CmdletBinding()]
-    Param
-    (
-        [Parameter(Mandatory=$false,
-                   ValueFromPipeline=$true,
-                   Position=0)]
-        [String] $Text = 'Finished',
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=1)]
-        [String[]] $Channels = @('#general'),
-
-        [Parameter(Mandatory=$false,
-                   ValueFromPipelineByPropertyName=$false,
-                   Position=2)]
-        [String] $WebhookUri = 'https://hooks.slack.com/services/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'
-    )
-
-    Process
-    {
-        foreach($Channel in $Channels) {
-            $body = @{attachments = @(@{color="warning" ; text = $Text ; fallback = $Text}); channel = $Channel} | ConvertTo-Json
-            $result = Invoke-RestMethod -Method Post -Uri $WebhookUri -Body $body
-            if($result -ne "ok") {
-                Write-Error "Expected 'ok' back from slack, but got: $result"
-            }
-        }
-    }
-    
 
 }
 

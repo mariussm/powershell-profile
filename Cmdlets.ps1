@@ -199,6 +199,35 @@ function ConvertFrom-LastLogonTimestamp
 
     return [datetime]::FromFileTime($LastLogonTimestamp)
 }
+function ConvertFrom-SAMLTokenToXML
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        [String] $String
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        if($String.Substring(0,1) -ne "<") {
+            Write-Verbose "Detected token as not saml, trying to convert from base64 first"
+            $String = ConvertFrom-Base64 $String
+        }
+
+        return ([xml] $String)
+    }
+    End
+    {
+    }
+}
 Function ConvertFrom-SecureStringToString {
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -901,6 +930,68 @@ function Get-ADUserGroups
     }
 }
 
+function Get-AzureADDomainInfoFromPublicApi
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        [String] $Domain
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $Url = "https://login.microsoftonline.com/common/userrealm/?user=someone.random@" + $Domain + "&checkForMicrosoftAccount=true&api-version=2.1"
+        Invoke-RestMethod $Url
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
+    Returns the federation metadata as XML
+.DESCRIPTION
+    Returns the federation metadata as XML
+.EXAMPLE
+    Get-AzureADFederationMetadata "microsoft.com"
+#>
+function Get-AzureADFederationMetadata
+{
+    [CmdletBinding()]
+    [OutputType([xml])]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                ValueFromPipeline=$true,
+                Position=0)]
+        [String] $Domain,
+
+        [Parameter(Mandatory=$false,
+                ValueFromPipeline=$false,
+                Position=1)]
+        [String] $STS = "sts.windows.net"
+    )
+ 
+    Begin
+    {
+    }
+    Process
+    {
+        $XDocument = [System.Xml.Linq.XDocument]::Load( ("https://$STS/{0}/FederationMetadata/2007-06/FederationMetadata.xml" -f $Domain))
+        [xml] $XDocument
+    }
+    End
+    {
+    }
+}
 Function Get-CodeSigningCertificate {
     [CmdletBinding()]
     [Alias()]
@@ -2225,6 +2316,41 @@ Function Load-Credential {
 
 }
 
+<#
+.Synopsis
+   Creates a red-black tree optimal for searching
+.EXAMPLE
+   $Tree = dir c:\windows | select -exp name | New-BinarySearchTree
+   $Tree.Contains("System32")
+   $Tree.Contains("system32")
+#>
+function New-BinarySearchTree
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        [String] $Value
+    )
+
+    Begin
+    {
+        Add-Type -AssemblyName System.Core
+        Add-Type -AssemblyName System.Collections
+        $Tree = new-object System.Collections.Generic.SortedSet[String]
+    }
+    Process
+    {
+        $Tree.Add($Value) | Out-Null
+    }
+    End
+    {
+        return $Tree
+    }
+}
 Function New-DirectoryFileHash {
     [CmdletBinding()]
     [Alias()]

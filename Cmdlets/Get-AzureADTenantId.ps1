@@ -24,6 +24,7 @@ function Get-AzureADTenantId
 
     Begin
     {
+        Load-Assembly System.Xml.Linq | Out-Null
     }
     Process
     {

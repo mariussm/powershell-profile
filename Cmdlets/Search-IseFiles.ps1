@@ -12,7 +12,7 @@ Function Search-IseFiles {
         [Parameter(Mandatory=$false,
                    ValueFromPipelineByPropertyName=$false,
                    Position=1)]
-        [string] $Path = "$($env:temp)\isefiles\"
+        [string] $Path = "$((Split-Path -Parent $profile))\isefiles\"
     )
 
     Begin

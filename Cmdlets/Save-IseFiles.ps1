@@ -8,7 +8,8 @@ Function Save-IseFiles {
         [Parameter(Mandatory=$false,
                    ValueFromPipelineByPropertyName=$false,
                    Position=0)]
-        [string] $Path = "$($env:temp)\isefiles\",
+        [string] $Path = "$((Split-Path -Parent $profile))\isefiles\",
+        
 
         [Parameter(Mandatory=$false,
                    ValueFromPipelineByPropertyName=$false,

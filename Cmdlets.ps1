@@ -1098,6 +1098,24 @@ Function Get-ContainerNameFromDistinguishedName {
 
 }
 
+function Get-ContentAsBase64
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([string])]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $Path
+    )
+
+    Process
+    {
+        ConvertTo-Base64 -ByteArray ([IO.File]::ReadAllBytes((Resolve-Path $Path).Path))
+    }
+}
 Function Get-ContentAsString {
     [CmdletBinding()]
     [Alias()]
@@ -1108,7 +1126,12 @@ Function Get-ContentAsString {
         [Parameter(Mandatory=$true,
                    ValueFromPipelineByPropertyName=$true,
                    Position=0)]
-        $Path
+        $Path,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=1)]
+        [System.Text.Encoding] $Encoding = [System.Text.Encoding]::Default
     )
 
     Begin
@@ -1116,7 +1139,7 @@ Function Get-ContentAsString {
     }
     Process
     {
-        return [IO.File]::ReadAllText((dir ($Path)).Fullname)
+        return [IO.File]::ReadAllText((dir ($Path)).FullName, $Encoding)
     }
     End
     {
@@ -1905,6 +1928,81 @@ Function Get-LevenshteinDistance {
 
 <#
 .Synopsis
+   Short description
+.DESCRIPTION
+   Long description
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Get-MIMEscrowedExports
+{
+    [CmdletBinding(SupportsShouldProcess=$true)]
+    [OutputType([int])]
+    Param
+    (
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$false,
+                   Position=1)]
+        [String] $MA = "Visma HRM Security",
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$false,
+                   Position=1)]
+        [String] $CSExportPath = "C:\Program Files\Microsoft Forefront Identity Manager\2010\Synchronization Service\Bin\csexport.exe"
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $Tempfile = Join-Path $env:TEMP (([guid]::newguid()).ToString() + ".xml")
+        . "C:\Program Files\Microsoft Forefront Identity Manager\2010\Synchronization Service\Bin\csexport.exe" $MA $Tempfile "/f:e" | Out-Null
+        
+        [xml] $xml = gc $Tempfile -Encoding UTF8
+
+        $xml.'cs-objects'.'cs-object' | foreach {
+            $csobject = $_ # $csobject = $xml.'cs-objects'.'cs-object' | select -index 2
+            Write-Verbose "Working on object: $($csobject.'cs-dn')"
+
+            $csdn = $csobject.'cs-dn'
+            $objectoperation = $csobject."escrowed-export".delta.operation
+
+            $csobject."escrowed-export".delta.attr | foreach {
+                $attributename = $_.name
+                $attributeoperation = $_.operation 
+                $attributetype = $_.type
+
+                $_.value | foreach {
+                    if($_.operation) {
+                        $value = $_."#text"
+                        $valueoperation = $_.operation
+                    } else {
+                        $value = $_
+                        $valueoperation = "none"
+                    }
+
+                    [PSCustomObject] @{
+                        csdn = $csdn
+                        objectoperation = $objectoperation   
+                        attributename = $attributename
+                        attributeoperation = $attributeoperation
+                        attributetype = $attributetype
+                        valueoperation = $valueoperation
+                        value = $value
+                    }
+                }
+            }
+        }
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
    Returns excel line for deployment excel file
 .DESCRIPTION
    Returns excel line for deployment excel file
@@ -1949,6 +2047,34 @@ function Get-MIMSynchornizationRuleAsExcelLine
     }
 }
 
+function Get-MultipleFileContentAsBase64
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $Path
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        ls $Path | Foreach {
+            [PSCustomObject] @{
+                Name = $_.Name
+                Content = (Get-ContentAsBase64 -Path $_.FullName)
+            }
+        } | ConvertTo-Json 
+    }
+    End
+    {
+    }
+}
 Function Get-OUFromDistinguishedName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2111,6 +2237,44 @@ Function Group-Object2 {
 
 }
 
+<#
+.Synopsis
+   Short description
+.DESCRIPTION
+   Long description
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Invoke-CommandWithExceptionsAsErrors
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$false,
+                   Position=0)]
+        [System.Management.Automation.ScriptBlock]
+        $ScriptBlock
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        try {
+            Invoke-Command -ScriptBlock $ScriptBlock
+        } catch {
+            Write-Error -Exception $_
+        }   
+    }
+    End
+    {
+    }
+}
 <#
 .Synopsis
    Function to invoke FIM run profiles
@@ -3650,6 +3814,35 @@ Function Search-IseFiles {
 
 }
 
+function Set-MultipleFileContentFromJson
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $Json = (Read-Host),
+
+        $Path = (Pwd).Path
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $t = $Json | ConvertFrom-Json
+        $t | Foreach {
+            Write-Verbose "$((Join-Path $Path $_.Name))"
+            Set-Content -Encoding Byte -Path (Join-Path $Path $_.Name) -Value ([System.Convert]::FromBase64String($_.Content))
+        }
+    }
+    End
+    {
+    }
+}
 Function Set-WorkingDirectoryToCurrentISEFilePath {
     [CmdletBinding()]
     [Alias("cdise")]

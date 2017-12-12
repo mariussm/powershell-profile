@@ -8,7 +8,12 @@ Function Get-ContentAsString {
         [Parameter(Mandatory=$true,
                    ValueFromPipelineByPropertyName=$true,
                    Position=0)]
-        $Path
+        $Path,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=1)]
+        [System.Text.Encoding] $Encoding = [System.Text.Encoding]::Default
     )
 
     Begin
@@ -16,7 +21,7 @@ Function Get-ContentAsString {
     }
     Process
     {
-        return [IO.File]::ReadAllText((dir ($Path)).Fullname)
+        return [IO.File]::ReadAllText((dir ($Path)).FullName, $Encoding)
     }
     End
     {

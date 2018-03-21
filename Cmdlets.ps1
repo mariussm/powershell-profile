@@ -1928,6 +1928,42 @@ Function Get-LevenshteinDistance {
 
 <#
 .Synopsis
+   Returns all email addresses from a string
+.DESCRIPTION
+   Returns all email addresses from a string
+.EXAMPLE
+   "randomstring" | Get-Matches
+#>
+function Get-Matches
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$false,
+                   Position=0)]
+        $Pattern,
+        
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=1)]
+        $String
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        [System.Text.RegularExpressions.Regex]::Matches($String, $Pattern) | foreach{$_.Value}
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
    Short description
 .DESCRIPTION
    Long description
@@ -2126,6 +2162,52 @@ Function Get-PowerShellProfileOneTimeScript {
 
 }
 
+
+function Get-PrettyPrintedXML
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([string])]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $InputString,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$false,
+                   Position=1)]
+        [ValidateSet("Base64","UrlDecodeBeforeBase64","Plain")]
+        [string] $Type = "Plain"
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        if($Type -eq "UrlDecodeBeforeBase64") {
+            $InputString = [System.Web.HttpUtility]::UrlDecode($InputString)
+        }
+        
+        if($Type -in "UrlDecodeBeforeBase64","Base64") {
+            $InputString = [System.Text.Encoding]::UTF8.GetString(([System.Convert]::FromBase64String($InputString)))
+        }
+
+        $doc = New-Object System.Xml.XmlDataDocument
+        $doc.LoadXml($InputString)
+        $sw=New-Object System.Io.Stringwriter
+        $writer=New-Object System.Xml.XmlTextWriter($sw)
+        $writer.Formatting = [System.Xml.Formatting]::Indented
+        $doc.WriteContentTo($writer)
+        $sw.ToString()
+    }
+    End
+    {
+    }
+}
 Function Get-RandomPassword {
     [CmdletBinding()]
     [OutputType([string])]
@@ -2170,6 +2252,37 @@ Function Get-ScheduledTask2008 {
 
 }
 
+function Get-StringsAsHtml
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([string])]
+    Param
+    (
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=0)]
+        [String] $Style,
+
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=1)]
+        [String] $StringObject
+    )
+
+    Begin
+    {
+        $Html = "<html><head><style type='text/css'>$Style</style></head><body>`n"
+    }
+    Process
+    {
+        $Html += $StringObject + "`n"
+    }
+    End
+    {
+        return $Html + "</body></html>"
+    }
+}
 Function Group-Object2 {
     [CmdletBinding()]
     [Alias()]

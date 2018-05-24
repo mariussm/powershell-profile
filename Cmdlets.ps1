@@ -930,6 +930,430 @@ function Get-ADUserGroups
     }
 }
 
+function Get-AsanaHttpHeaders
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    ()
+
+    Begin
+    {
+    }
+    Process
+    {
+        return @{
+            "Authorization" = "Bearer {0}" -f (Get-AsanaPersonalToken)
+            #"Authorization" = "Bearer {0}" -f [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((Get-AsanaPersonalToken)))
+        }
+
+        
+    }
+    End
+    {
+    }
+}
+function Get-AsanaPersonalToken
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    ()
+
+    Begin
+    {
+    }
+    Process
+    {
+        if($GLOBAL:AsanaPersonalAccessToken) {
+            return $GLOBAL:AsanaPersonalAccessToken
+        } else {
+            throw "No personal access token found"
+        }
+    }
+    End
+    {
+    }
+}
+function Get-AsanaProject
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $Id,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=1)]
+        [Boolean] $IncludeTasks = $true,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=2)]
+        [Boolean] $IncludeSubTasks = $false
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        Write-Verbose "Getting asana project $id"
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Ssl3
+
+        $headers = Get-AsanaHttpHeaders
+        
+        $uri = Get-AsanaUri "/projects/$Id"
+        $project = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+        
+        
+        
+        $returnObject = @{
+            Project = $project.data
+        }
+
+        if($IncludeTasks) {
+            $returnObject["Tasks"] = Get-AsanaTasks -ProjectId $Id | Get-AsanaTask -IncludeSubTasks:$IncludeSubTasks
+        }
+
+        $returnObject["Users"] = @($returnObject["Tasks"] | foreach{$_.task ; $_.subtasks | foreach{$_.task}} | foreach{$_.assignee.id}; $project.data.members.id) | sort -Unique | foreach{Get-AsanaUser -Id $_} | Group -AsHashTable -Property id
+
+
+        [PSCustomObject] $returnObject
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
+   Short description
+.DESCRIPTION
+   Long description
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Get-AsanaProjectEstimateHtml
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        [String] $ProjectNumber,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=1)]
+        [Boolean] $ShowEstimatedHours = $true,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=2)]
+        [Boolean] $ShowEstimatedPercentOfTotalProject = $true,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=3)]
+        [String] $EstimatedHoursText = "Estimated hours for this phase",
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=4)]
+        [String] $EstimatedPercentOfTotalProjectText = "Estimated percent of total project"
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $AsanaToken = ([System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString ([IO.File]::ReadAllText((Resolve-Path "$($env:APPDATA)\asana.txt"))).Trim()))))
+        Set-AsanaPersonalToken -Token $AsanaToken
+
+        $Project = Get-AsanaProjectWithTasksAndPhase -ProjectNumber $ProjectNumber
+
+        $ShowEstimate = $true
+        $EstimateTotal = $Project.Tasks | foreach{$_.CustomFieldsByName["Estimated Hours"]}  | measure -Sum -Property number_value
+        $Project.Tasks | Foreach {
+            if($_.Task.Name -like "*:") {
+                $Name = $_.Task.name -replace ":$",""
+                "<h1>$Name</h1>"
+                if($_.Task.notes) {
+                    $notes = $_.Task.notes -replace "`n","</p><p class='notes'>"
+                    "<p class='notes'>$notes</p>"
+                }
+        
+                $Estimate = $Project.Tasks | ? Phase -eq $Name | foreach{$_.CustomFieldsByName["Estimated Hours"]}  | measure -Sum -Property number_value
+                $Percent = [Math]::Ceiling(100 * $Estimate.Sum / $EstimateTotal.Sum)
+                if($ShowEstimatedHours) {
+                    "<p class='estimate'>$($EstimatedHoursText): $($Estimate.Sum)</p>"
+                }
+
+                if($ShowEstimatedPercentOfTotalProject) {
+                    "<p class='estimate'>$($EstimatedPercentOfTotalProjectText): $($Percent)</p>"
+                }
+                # "<p class='tasklist'>Tasks in this phase:</p>"
+
+                $Project.Tasks | ? Phase -eq $Name | ?{$_.task.name -notlike "*:"} | foreach -Begin {"<ul>"} -End {"</ul>"} -Process {"<li>$($_.task.name)</li>"}
+            } else {
+                # "<p class='task'>$($_.Task.Name)</p>"
+            }
+        } | Get-StringsAsHtml -Style "* {font-family: arial} h1 {font-size: 20px; margin: 10px 0 2px 0} p.estimate {margin: 2px 0} p.tasklist {margin: 15px 0 2px 0; font-weight: bold;} p.task {margin: 2px 0 2px 10px}" | set-content "$($env:temp)\1.html"
+        ii "$($env:temp)\1.html"
+
+    }
+    End
+    {
+    }
+}
+function Get-AsanaProjects
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [ScriptBlock] $Filter = {$_.name -like "#* - *"}
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        Write-Verbose "Getting all asana projects"
+
+        $headers = Get-AsanaHttpHeaders
+        $uri = Get-AsanaUri "/projects?archived=false" # ?limit=10&workspace=70246419796023" #/114447556184299?opt_fields=name"
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Ssl3
+        $result = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+        $result.data | Where $Filter 
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
+   Short description
+.DESCRIPTION
+   Long description
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Get-AsanaProjectWithTasksAndPhase
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $ProjectNumber,
+
+        [Parameter(Mandatory=$false,
+                   Position=1)]
+        [String] $Phase1Name = "Phase 1:",
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=2)]
+        [Boolean] $IncludeSubTasks = $false
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $project = Get-AsanaProject -Id $ProjectNumber -Verbose -IncludeSubTasks:$IncludeSubTasks
+        
+        $currentPhase = $Phase1Name
+        $project.Tasks | foreach {
+            if($_.Task.Name -like "*:") {
+                $currentPhase = $_.Task.Name -replace ":$",""
+            } 
+
+            $_ | Add-Member -Force NoteProperty -Name Phase -Value $currentPhase
+        }
+
+        return $project
+    }
+    End
+    {
+    }
+}
+
+function Get-AsanaTask
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $Id,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=1)]
+        [Boolean] $IncludeSubTasks = $false
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        Write-Verbose "Getting asana task $Id"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Ssl3
+
+        $headers = Get-AsanaHttpHeaders
+        
+        $uri = Get-AsanaUri "/tasks/$Id"
+        $task = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+        $subtasks = @()
+        
+        if($IncludeSubTasks) {
+            $subtaskuri = Get-AsanaUri "/tasks/$Id/subtasks"
+            $subtasksresponse = Invoke-RestMethod -Uri $subtaskuri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+            if($subtasksresponse.data) {
+                $subtasks = $subtasksresponse.data | Get-AsanaTask -IncludeSubTasks:$IncludeSubTasks
+            }
+        }
+        
+        $ReturnObject = @{
+            Task = $task.data
+            CustomFieldsById = @{}
+            CustomFieldsByName = @{}
+            Subtasks = $subtasks
+        }
+
+        $task.data.custom_fields | foreach {
+            if($_.id) {
+                $ReturnObject.CustomFieldsById[$_.id] = $_
+            }
+
+            if($_.name) {
+                $ReturnObject.CustomFieldsByName[$_.name] = $_
+            }
+        }
+
+        [PSCustomObject] $ReturnObject
+    }
+    End
+    {
+    }
+}
+function Get-AsanaTasks
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $ProjectId
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        Write-Verbose "Getting asana tasks for project $ProjectId"
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Ssl3
+
+        $headers = Get-AsanaHttpHeaders
+        
+        $uri = Get-AsanaUri "/projects/$Id/tasks?limit=100"
+        $tasks = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+        $data = $tasks.data
+        while($tasks.next_page) {
+            $tasks = Invoke-RestMethod -Uri $tasks.next_page.uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+            $data += $tasks.data
+        }
+
+        return $data 
+    }
+    End
+    {
+    }
+}
+
+function Get-AsanaUri
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [String] $Endpoint
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        if(!$Endpoint.StartsWith("/")) {
+            $Endpoint = "/$Endpoint"
+        }
+        return "https://app.asana.com/api/1.0" + $Endpoint
+    }
+    End
+    {
+    }
+}
+function Get-AsanaUser
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $Id
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        Write-Verbose "Getting asana user $Id"
+
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12, [Net.SecurityProtocolType]::Tls, [Net.SecurityProtocolType]::Ssl3
+
+        $headers = Get-AsanaHttpHeaders
+        
+        $uri = Get-AsanaUri "/users/$Id"
+        $user = Invoke-RestMethod -Uri $uri -Method GET -Headers $headers -ErrorAction SilentlyContinue 
+        $data = $user.data
+
+        return $data 
+    }
+    End
+    {
+    }
+}
 function Get-AzureADDomainInfoFromPublicApi
 {
     [CmdletBinding()]
@@ -2667,6 +3091,200 @@ Function Load-Credential {
 
 }
 
+function New-AsanaCustomerReportEmail
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   Position=0)]
+        $Report
+    )
+
+    Begin
+    {
+        $ol = New-Object -comObject Outlook.Application 
+        $ns = $ol.GetNameSpace("MAPI")
+    }
+    Process
+    {
+        
+        $template = '
+            <html>
+                <head>
+                    <style type="text/css">
+                        div#wrapper {
+                            margin: 20px 20px 20px 20px;
+                        }
+
+                        table { 
+                            border-spacing: 0;
+                            border-collapse: collapse;
+                            border-color: rgb(200,200,200);
+                        }
+
+                        tr.task {
+                            min-height: 26px;
+                            border: solid rgb(200,200,200);
+                            border-width: 1px 0px 1px 0px;
+                    
+                        }
+
+                        tr.subtask {
+                            min-height: 26px;
+                            border: solid rgb(200,200,200);
+                            border-width: 1px 0px 1px 0px;
+                    
+                        }
+
+                        td.text {
+                            width: 800px;
+                        }
+
+                        tr.task td {
+                            padding: 8px 2px 8px 4px;
+                        }
+
+                        tr.subtask td {
+                            padding: 8px 2px 8px 4px;
+                        }
+
+                        tr.completed td {
+                            color: rgb(200,200,200);
+                        }
+
+                        tr.phasecompleted td {
+                            color: rgb(200,200,200);
+                        }
+
+                        tr.phase td {font-weight: bold;}
+
+
+                        .icon {
+                            fill: rgb(200,200,200);
+                            color: rgb(200,200,200);
+                            width: 12px;
+                            height: 12px;
+                        }
+
+                        .incomplete .icon {
+                            visibility: hidden;
+                        }
+
+                        html {
+                            font-family: arial;
+                        }
+
+                        h1 {
+                            font-size: 24px;
+                        }
+
+                        a.tag {
+                            border: 1px solid rgb(200,200,200);
+                            padding: 3px;
+                            font-size: 10px;
+                            border-radius: 4px;
+                        }
+
+                        a.subtasktext {
+                            margin-left: 14px;
+                        }
+                    </style>
+                </head>
+                <body><h1>HEADERTEXT</h1><div id="wrapper"><table>TASKLIST</table></div></body>
+            </html>
+        '
+
+        
+
+        
+        Write-Verbose "Working on $report"
+        $project = $null
+        $project = Get-AsanaProjectWithTasksAndPhase -ProjectNumber $report.AsanaProjectNumber -Verbose:$false -IncludeSubTasks:(!!$report.IncludeSubTasks)
+
+        $tasklist = $project.Tasks | ? {$_.Task.name -cnotlike "Internal*"} | where {!$report.IncompleteTasksOnly -or !$_.Task.Completed}| foreach {
+            $classes = @("task")
+            if($_.Task.name -like "*:") {
+                $classes += "phase"
+                if($_.Task.Completed) {
+                    $classes += "phasecompleted"
+                } else {
+                    $classes += "phaseincomplete"
+                }
+                "<tr class='$classes'><td colspan='3' >$($_.Task.name)</td></tr>"
+            } else {
+                $icon = '<svg class="icon" viewBox="0 0 32 32"><polygon points="27.672,4.786 10.901,21.557 4.328,14.984 1.5,17.812 10.901,27.214 30.5,7.615 "></polygon></svg>'
+                [int] $percent = $_.task.custom_fields | ? id -eq 230589792216219 | select -exp number_value
+                if($_.Task.due_on -and !$_.Task.Completed) {
+                    $due = $_.Task.due_on
+                } else {
+                    $due = "&nbsp;"
+                }
+
+                if($_.Task.Completed) {
+                    $classes += "completed"
+                    $percent = 100
+                } else {
+                    $classes += "incomplete"
+                }
+
+                $tags = $_.task.tags| foreach {if($_.name) {"<a class='tag'>$($_.Name)</a>"}}
+
+                "<tr class='$classes'><td class='text'>$icon <a class='tasktext'>$($_.Task.name) ($percent %)</a></td><td class='due'>$due</td><td class='tags'>$tags</td></tr>"
+
+                if($_.Subtasks -and !$_.Task.Completed) {
+                    $_.Subtasks | Foreach {
+                    $classes = @("subtask")
+                        $icon = '<svg class="icon" viewBox="0 0 32 32"><polygon points="27.672,4.786 10.901,21.557 4.328,14.984 1.5,17.812 10.901,27.214 30.5,7.615 "></polygon></svg>'
+                        [int] $percent = $_.task.custom_fields | ? id -eq 230589792216219 | select -exp number_value
+                        if($_.Task.due_on -and !$_.Task.Completed) {
+                            $due = $_.Task.due_on
+                        } else {
+                            $due = "&nbsp;"
+                        }
+
+                        if($_.Task.Completed) {
+                            $classes += "completed"
+                            $percent = 100
+                        } else {
+                            $classes += "incomplete"
+                        }
+
+                        $tags = $_.task.tags| foreach {if($_.name) {"<a class='tag'>$($_.Name)</a>"}}
+
+                        "<tr class='$classes'><td class='text'>$icon <a class='subtasktext'>$($_.Task.name) ($percent %)</a></td><td class='due'>$due</td><td class='tags'>$tags</td></tr>"
+                    }
+                }
+            }
+        }
+
+        $result = $template -creplace "TASKLIST", ($tasklist -join "`n") -creplace "HEADERTEXT", $report.HeaderText
+        $folder = "$($ENV:TEMP)\projectreport-$([guid]::NewGuid())" 
+        mkdir $folder | Out-Null
+        $file = "$folder\Report.html" 
+        Set-Content -Path $file -Value $result -Encoding UTF8 
+    
+        $mail = $ol.CreateItem(0)
+        $mail.Display() | Out-Null
+        $mail.Subject = $report.Subject 
+        $mail.Attachments.Add($file) | Out-Null
+        $report.Recipients | foreach {
+            $Mail.Recipients.Add($_) | Out-Null
+        }
+    
+        [regex]$pattern = "<o:p>&nbsp;</o:p>"
+        $mail.HTMLBody = $pattern.replace($mail.HTMLBody , "<o:p>$($report.MailText)</o:p>", 1) 
+        
+
+
+    }
+    End
+    {
+        $ol = $null 
+    }
+}
 <#
 .Synopsis
    Creates a red-black tree optimal for searching
@@ -3771,6 +4389,34 @@ Function Replace-String {
 
 }
 
+function Restore-AsanaPersonalTokenFromFile
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $File
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        if(Test-path $file) {
+            $AsanaToken = ([System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString ([IO.File]::ReadAllText((Resolve-Path $File))).Trim()))))
+            Set-AsanaPersonalToken -Token $AsanaToken
+        } else {
+            throw "Could not find file $file"
+        }
+    }
+    End
+    {
+    }
+}
 Function Run-ScheduledTask2008 {
     [CmdletBinding()]
     Param(
@@ -3927,6 +4573,67 @@ Function Search-IseFiles {
 
 }
 
+function Set-AsanaPersonalToken
+{
+    [CmdletBinding()]
+    [Alias()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [String] $Token
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $GLOBAL:AsanaPersonalAccessToken = $Token
+    }
+    End
+    {
+    }
+}
+<#
+.Synopsis
+   Short description
+.DESCRIPTION
+   Long description
+.EXAMPLE
+   Example of how to use this cmdlet
+.EXAMPLE
+   Another example of how to use this cmdlet
+#>
+function Set-ContentFromBase64
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([int])]
+    Param
+    (
+        # Param1 help description
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        $Base64Value = (Read-Host -Prompt "Base64 value"),
+
+        [String] $File
+    )
+
+    Begin
+    {
+    }
+    Process
+    {
+        $decoded = [System.Convert]::FromBase64String($Base64Value)
+        set-content -Path $File -Value $decoded -Encoding Byte
+    }
+    End
+    {
+    }
+}
 function Set-MultipleFileContentFromJson
 {
     [CmdletBinding()]

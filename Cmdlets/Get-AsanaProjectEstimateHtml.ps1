@@ -37,7 +37,17 @@ function Get-AsanaProjectEstimateHtml
         [Parameter(Mandatory=$false,
                    ValueFromPipeline=$false,
                    Position=4)]
-        [String] $EstimatedPercentOfTotalProjectText = "Estimated percent of total project"
+        [String] $EstimatedPercentOfTotalProjectText = "Estimated percent of total project",
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=5)]
+        [Boolean] $ShowStartAndEndDateForPhase = $true,
+
+        [Parameter(Mandatory=$false,
+                   ValueFromPipeline=$false,
+                   Position=6)]
+        [String] $StartAndEndDateText = "Suggested phase start and end"
     )
 
     Begin
@@ -70,6 +80,15 @@ function Get-AsanaProjectEstimateHtml
                 if($ShowEstimatedPercentOfTotalProject) {
                     "<p class='estimate'>$($EstimatedPercentOfTotalProjectText): $($Percent)</p>"
                 }
+
+                if($ShowStartAndEndDateForPhase) {
+                    if($_.Task.start_on -and $_.Task.due_on) {
+                        "<p class='estimate'>$($StartAndEndDateText): $($_.Task.start_on) - $($_.Task.due_on)</p>"
+                    } else {
+                        Write-Warning "No start and end dates for phase ""$($Name)"""
+                    }
+                }
+
                 # "<p class='tasklist'>Tasks in this phase:</p>"
 
                 $Project.Tasks | ? Phase -eq $Name | ?{$_.task.name -notlike "*:"} | foreach -Begin {"<ul>"} -End {"</ul>"} -Process {"<li>$($_.task.name)</li>"}
